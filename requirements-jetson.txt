@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+gradio
+gradio_client
+easyocr
+pytesseract
+transformers 
+accelerate
+llama-cpp-python
+onnx

@@ -1,0 +1,49 @@
+services:
+  mles-app:
+    image: 0taki0/mles_app:latest
+    ports:
+      - "5001:5000"
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           capabilities: [gpu]
+    networks:
+      internal:
+        aliases: [app]
+
+        
+  mles-app-jetson:
+    image: 0taki0/mles_app:jetson
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    ports:
+      - "5000:5000"
+    networks:
+      internal:
+        aliases: [app]
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    depends_on:
+      - mles-app
+      # - mles-app-jetson
+    volumes:
+      - ./.ngrok/ngrok-traffic-policy.yml:/etc/ngrok/traffic-policy.yml:ro
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    command: >
+      http http://app:5000
+      --url=http://taltech-mles-app.ngrok.io
+    networks: [internal]
+    ports:
+      - "4040:4040"
+      - "443:443"
+      - "80:80"
+
+networks:
+  internal:
+    driver: bridge

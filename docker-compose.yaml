@@ -1,0 +1,53 @@
+
+x-common: &common
+  volumes:
+    - ./app.py:/app/app.py
+    - ./models:/app/models
+    - ./services:/app/services
+    - ./.tmp:/app/.tmp
+  networks: [internal]
+  ports:
+    - "5001:5000"
+  stdin_open: true
+  tty: true 
+
+
+services:
+  mles-app:
+    <<: *common
+    build:
+      context: .
+      dockerfile: .docker/Dockerfile
+    image: mles-app
+
+  mles-app-jetson:
+    <<: *common
+    build:
+      context: .
+      dockerfile: .docker/Dockerfile.jetson
+    image: mles-app-jetson
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    depends_on:
+      - mles-app
+    volumes:
+      - ./.ngrok/ngrok-traffic-policy.yml:/etc/ngrok/traffic-policy.yml:ro
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    command: >
+      http http://mles-app:5000
+      --url=http://taltech-mles-app.ngrok.io
+    networks: [internal]
+    ports:
+      - "4040:4040"
+      - "443:443"
+      - "80:80"
+
+networks:
+  internal:
+    driver: bridge

@@ -1,0 +1,6 @@
+on_tcp_connect:
+  - actions:
+      - type: terminate-tls
+        config:
+          min_version: "1.2"
+          max_version: "1.2"
