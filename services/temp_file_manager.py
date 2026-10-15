@@ -1,7 +1,7 @@
 import os
 import numpy as np
 
-BASE_DIR = "/app/.tmp/buffers"
+BASE_DIR = os.environ.get("BUFFER_DIR", "/app/.tmp/buffers")  # overridable for local runs/tests
 
 def prepare_storage():
     os.makedirs(BASE_DIR, exist_ok=True)

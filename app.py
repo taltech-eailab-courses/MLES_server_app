@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import gradio as gr
 import uvicorn
@@ -10,6 +11,7 @@ from models.mnist import mnist_predict, mnist_preprocess, MnistPredictIn, MnistP
 from models.text_recognition import ocr_preprocessing, ocr_predict, OCRPredictIn, OCRPredictOut, text_recognition_title, text_recognition_description, ChunkedOCRRequestIn, ChunkedOCRRequestOut
 from models.tinyllama import generate_text, LLAMARequest, llm_prompt_title, llm_prompt_description
 from services.temp_file_manager import prepare_storage, store_packet, retrieve_full_data, create_storage
+from services import air_writing
 
 
 class Greet(BaseModel):
@@ -128,6 +130,25 @@ def run_test(body: ChunkedOCRRequestIn):
     prediction = ocr_predict(input_data)
 
     return ChunkedOCRRequestOut(data=prediction)
+
+class AirWritingRequestIn(BaseModel):
+    request_id: str      # unique string of one word
+    packet_index: int    # 0-based index of this character
+    total_packets: int   # number of characters of the word
+    x: str               # 3D trajectory in metres: "x0,y0,z0,x1,y1,z1,..."
+
+@app.post(f"/{prefix}/air_writing", response_model=ChunkedOCRRequestOut, tags=["inference"])
+def run_air_writing(body: AirWritingRequestIn):
+    """One request per air-written character. Each is converted to a 2D character image and stored under
+    .tmp/buffers/{request_id}/; the last one (packet_index == total_packets - 1) combines the images, runs OCR
+    and returns the text in `data`. See services/air_writing.py."""
+    try:
+        text = air_writing.handle_packet(body.request_id, body.packet_index, body.total_packets, body.x)
+        return ChunkedOCRRequestOut(data=text)
+    except air_writing.AirWritingError as e:
+        return JSONResponse({"error": e.code, "message": e.message, **e.extra}, status_code=e.status)
+    except Exception as e:  # OCR backend failure; the stored character images are kept for a retry
+        return JSONResponse({"error": "ocr_failed", "message": str(e)[:200]}, status_code=500)
 
 @app.post(f"/{prefix}/ask_llm", response_model=dict, tags=["inference"])
 def run_tinyllama_predict(body: LLAMARequest):

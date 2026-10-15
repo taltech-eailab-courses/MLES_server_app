@@ -428,6 +428,28 @@ curl -X POST http://localhost:5000/api/v1/ask_llm \
   }'
 ```
 
+#### Air-writing (IMU trajectories → word image → OCR)
+
+`POST /api/v1/air_writing` — one request per air-written character, same shape as `/ocr_chunked`:
+
+```json
+{"request_id": "0a1b2c3d", "packet_index": 0, "total_packets": 5, "x": "x0,y0,z0,x1,y1,z1,..."}
+```
+
+- `request_id`: unique string of one word; used as the directory name `.tmp/buffers/{request_id}/` (only `A-Z a-z 0-9 _ -`, max 64).
+- `packet_index`: 0-based index of the character, `total_packets`: number of characters (1..5).
+- `x`: the 3D trajectory in metres as flattened `x,y,z` triples (world frame, Z up; the writer looks along +Y).
+
+For every request the trajectory is turned into a 2D character image (PCA plane, orientation from the up/reader
+directions, not from PCA) and stored as `.tmp/buffers/{request_id}/{packet_index}.png`. Re-sending a packet overwrites it.
+When `packet_index == total_packets - 1` arrives, the stored images are combined (same height, bottoms aligned, gaps, never
+connected) into a 60×180 grayscale image (`word.png`), the OCR model (`ocr_predict`) runs and the text is returned:
+`{"data": "HELLO"}` (earlier packets get `{"data": "Packet 2/5 received."}`). A repeated last packet returns the cached text.
+Errors: `{"error": "<code>", "message": "..."}` with 4xx/5xx (`bad_request_id`, `bad_x`, `bad_point_count`,
+`character_too_small`/`character_too_large` 422, `missing_packets` 409 + `"missing": [..]`, `total_packets_mismatch` 409, `ocr_failed` 500).
+Directories older than 1 h are removed. Logic: `services/air_writing.py`; optional env: `BUFFER_DIR`, `AW_OCR_INVERT=1`, `AW_OCR_UPSCALE`
+(default 2). Tests: `pip install pytest httpx && pytest tests/test_air_writing.py`.
+
 ---
 
 ## Gradio UI
