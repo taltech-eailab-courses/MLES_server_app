@@ -24,7 +24,7 @@ MLES App is a comprehensive machine learning inference service that provides:
 - Interactive Gradio web interface for testing models
 - Support for MNIST digit recognition
 - OCR (Optical Character Recognition) capabilities
-- LLM text generation using TinyLlama
+- Robot task planning with a custom fine-tuned LLM (LoRA, GGUF)
 - Chunked data handling for large requests
 - Docker deployment support for both standard and Jetson platforms
 
@@ -36,7 +36,7 @@ MLES App is a comprehensive machine learning inference service that provides:
   - Simple linear models (Model A & B)
   - MNIST digit classification
   - Text recognition (OCR)
-  - LLM text generation (TinyLlama)
+  - Robot planner: custom LLM fine-tuned with LoRA
 - **CORS Enabled**: Supports cross-origin requests
 - **Chunked Upload**: Support for large data transfers via packet-based uploads
 - **Health Monitoring**: Built-in health check endpoint
@@ -382,51 +382,62 @@ curl -X POST http://localhost:5000/api/v1/ocr_chunked \
 
 ---
 
-#### POST `/api/v1/ask_llm`
+#### POST `/api/v1/robot_plan`
 
-**Description**: Generate text using the TinyLlama language model.
+**Description**: Turn a natural-language request into a JSON plan for a mobile robot, using a
+small LLM fine-tuned with LoRA (see the LoRA robot-planner demo).
 
 **Tags**: `inference`
 
-**Model**: TinyLlama-1.1B-Chat-v1.0 (quantized Q8_0)
+**Model**: Qwen2.5-0.5B-Instruct + LoRA, merged and quantized to GGUF Q4_K_M.
+Default file `models/robot-q4_k_m.gguf`; override with the environment variable
+`ROBOT_PLANNER_GGUF`. The model is loaded on the first request.
 
 **Request Body**:
 ```json
 {
-  "prompt": "Once upon a time",
-  "max_tokens": 100
+  "request": "bring the keys to the front door",
+  "max_tokens": 200
 }
 ```
 
 **Parameters**:
-- `prompt` (string, required): The input text prompt
-- `max_tokens` (integer, required): Maximum number of tokens to generate
+- `request` (string, required, 1–500 characters): command for the robot
+- `max_tokens` (integer, optional, 16–512, default 200): upper limit on generated tokens
 
-**Response**:
+**Response** (200):
 ```json
 {
-  "data": "Generated text continuation..."
+  "data": {"steps": [
+    {"action": "navigate", "target": "keys"},
+    {"action": "grab", "object": "keys"},
+    {"action": "navigate", "target": "front door"},
+    {"action": "drop", "object": "keys"}
+  ]},
+  "valid": true,
+  "error": null,
+  "raw": "{\"steps\": [...]}",
+  "latency_ms": 85.3,
+  "model": "robot-q4_k_m.gguf"
 }
 ```
 
+- `valid` is `false` and `data` is `null` when the output is not valid JSON or uses an action other
+  than `navigate(target)`, `grab(object)`, `drop(object)` or `stop`; `error` says why.
+- `raw` always holds the exact generated text. The latency value above is only an example.
+- **503** if the model file is missing.
+
 **Example**:
 ```bash
-# To generate sentence that follows text in the prompt
-curl -X POST http://localhost:5000/api/v1/ask_llm \
+curl -X POST http://localhost:5000/api/v1/robot_plan \
   -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Once upon a time in a land far away",
-    "max_tokens": 100
-  }'
-
-# To answer a question given in the prompt
-curl -X POST http://localhost:5000/api/v1/ask_llm \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Q: What is the capital of France?",
-    "max_tokens": 100
-  }'
+  -d '{"request": "bring the keys to the front door"}'
 ```
+
+**Environment variables**:
+- `ROBOT_PLANNER_GGUF`: path to the GGUF file (default `models/robot-q4_k_m.gguf`)
+- `ROBOT_PLANNER_GPU_LAYERS`: layers on GPU/Metal (default `-1` = all)
+- `ROBOT_PLANNER_THREADS`: CPU threads (default `6`)
 
 #### Air-writing (IMU trajectories → word image → OCR)
 
@@ -509,12 +520,13 @@ mles_app/
 │   ├── example_model.py           # Simple linear models
 │   ├── mnist.py                   # MNIST digit recognition
 │   ├── text_recognition.py        # OCR implementation
-│   ├── tinyllama.py               # LLM text generation
+│   ├── robot_planner.py           # Custom LLM: request → JSON robot plan
+│   ├── tinyllama.py               # Previous TinyLlama module (no longer used)
 │   ├── imu_model.py               # IMU sensor model
 │   ├── audio_model.py             # Audio processing model
 │   ├── mnist-12.onnx              # MNIST ONNX model (FP32)
 │   ├── mnist-12-int8.onnx         # MNIST ONNX model (INT8)
-│   └── tinyllama-1.1b-chat-v1.0.Q8_0.gguf  # TinyLlama model
+│   └── robot-q4_k_m.gguf          # Fine-tuned planner model (not in git)
 └── services/                       # Service utilities
     ├── __init__.py
     └── temp_file_manager.py       # Packet storage for chunked uploads
@@ -625,7 +637,7 @@ The application runs on:
 
 Models are loaded at application startup:
 - MNIST ONNX models located in `models/`
-- TinyLlama GGUF model located in `models/`
+- Fine-tuned robot planner GGUF (`robot-q4_k_m.gguf`) located in `models/`, or set `ROBOT_PLANNER_GGUF`
 - Model weights and configuration embedded in model modules
 
 ---
@@ -644,7 +656,7 @@ Models are loaded at application startup:
 3. **Model Inference**
    - Simple models include 3-second delays (intentional, for demo)
    - ONNX models provide optimized inference
-   - TinyLlama uses quantized weights (Q8_0) for efficiency
+   - The robot planner uses 4-bit quantized weights (Q4_K_M) for efficiency
 
 ---
 
@@ -699,4 +711,4 @@ lsof -i :5000
 - Gradio for interactive ML interfaces
 - ONNX Runtime for efficient model inference
 - llama.cpp for efficient LLM inference
-- TinyLlama model developers
+- Qwen model developers (base model of the robot planner)

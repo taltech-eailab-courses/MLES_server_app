@@ -9,7 +9,8 @@ import numpy as np
 from models.example_model import SamplePredictIn, SamplePredictOut, ModelA, ModelB, model_a_title, model_a_description, model_b_title, model_b_description
 from models.mnist import mnist_predict, mnist_preprocess, MnistPredictIn, MnistPredictOut, mnist_title, mnist_description
 from models.text_recognition import ocr_preprocessing, ocr_predict, OCRPredictIn, OCRPredictOut, text_recognition_title, text_recognition_description, ChunkedOCRRequestIn, ChunkedOCRRequestOut
-from models.tinyllama import generate_text, LLAMARequest, llm_prompt_title, llm_prompt_description
+from models.robot_planner import (robot_plan, RobotPlanRequest, RobotPlanResponse, ModelNotAvailable,
+                                  robot_plan_title, robot_plan_description)
 from services.temp_file_manager import prepare_storage, store_packet, retrieve_full_data, create_storage
 from services import air_writing
 
@@ -150,11 +151,15 @@ def run_air_writing(body: AirWritingRequestIn):
     except Exception as e:  # OCR backend failure; the stored character images are kept for a retry
         return JSONResponse({"error": "ocr_failed", "message": str(e)[:200]}, status_code=500)
 
-@app.post(f"/{prefix}/ask_llm", response_model=dict, tags=["inference"])
-def run_tinyllama_predict(body: LLAMARequest):
-    # Generate text using TinyLlama
-    response = generate_text(body.prompt, body.max_tokens)
-    return response
+@app.post(f"/{prefix}/robot_plan", response_model=RobotPlanResponse, tags=["inference"])
+def run_robot_plan(body: RobotPlanRequest):
+    """Turn a natural-language request into a JSON robot plan with the fine-tuned LLM.
+    `valid` is false (and `data` null) when the model's output is not a valid plan; `raw` always
+    holds the generated text. See models/robot_planner.py."""
+    try:
+        return robot_plan(body.request, body.max_tokens)
+    except ModelNotAvailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 # --- Gradio UI (/ui): two simple sections ---
@@ -184,9 +189,14 @@ def ui_ocr_predict(x: str):
     predicted_text = ocr_predict(input_data)
     return str(predicted_text), {"data": predicted_text}
 
-def ui_llama_predict(prompt: str, max_tokens: int = 100):
-    response = generate_text(prompt, max_tokens)
-    return str(response["data"]), {"data": response["data"]}
+def ui_robot_plan(request: str, max_tokens: int = 200):
+    try:
+        result = robot_plan(request, int(max_tokens))
+    except ModelNotAvailable as e:
+        raise gr.Error(str(e))
+    summary = (" → ".join(f"{s['action']}({s.get('target') or s.get('object') or ''})" for s in result["data"]["steps"])
+               if result["valid"] else f"Invalid plan: {result['error']}")
+    return f"{summary}   [{result['latency_ms']:.0f} ms]", result
 
 with gr.Blocks(title="ML for Embedded System Playground") as demo:
     gr.Markdown("# ML for Embedded System Playground")
@@ -228,15 +238,15 @@ with gr.Blocks(title="ML for Embedded System Playground") as demo:
         outputs=[ocr_y_label, ocr_y_json],
     )
 
-    gr.Markdown(f"## {llm_prompt_title}\n{llm_prompt_description}")
-    llm_prompt = gr.Textbox(label="Input prompt", lines=4, value="Once upon a time")
-    llm_max_tokens = gr.Number(label="Max tokens", value=100)
-    llm_y_label = gr.Label(label="Generated text")
-    llm_y_json  = gr.JSON(label="Raw output")
-    gr.Button("Run LLM Inference").click(
-        fn=ui_llama_predict,
-        inputs=[llm_prompt, llm_max_tokens],
-        outputs=[llm_y_label, llm_y_json],
+    gr.Markdown(f"## {robot_plan_title}\n{robot_plan_description}")
+    plan_request = gr.Textbox(label="Request to the robot", lines=2, value="bring the keys to the front door")
+    plan_max_tokens = gr.Number(label="Max tokens", value=200)
+    plan_y_label = gr.Label(label="Plan")
+    plan_y_json  = gr.JSON(label="Raw output")
+    gr.Button("Run Robot Planner").click(
+        fn=ui_robot_plan,
+        inputs=[plan_request, plan_max_tokens],
+        outputs=[plan_y_label, plan_y_json],
     )
 
 # mount Gradio at /

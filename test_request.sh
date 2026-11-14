@@ -66,7 +66,7 @@ for i in 0 1 2 3 4; do
 done
 
 echo ""
-echo "Testing LLM Endpoint:"
-curl -X POST $HOST_URL/api/v1/ask_llm \
+echo "Testing Robot Planner Endpoint:"
+curl -X POST $HOST_URL/api/v1/robot_plan \
     -H "Content-Type: application/json" \
-    -d '{"prompt": "Q: What is the capital of France?", "max_tokens": 100}'
+    -d '{"request": "bring the keys to the front door"}'
