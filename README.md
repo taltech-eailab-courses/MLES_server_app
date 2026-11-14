@@ -438,6 +438,21 @@ curl -X POST http://localhost:5000/api/v1/robot_plan \
 - `ROBOT_PLANNER_GGUF`: path to the GGUF file (default `models/robot-q4_k_m.gguf`)
 - `ROBOT_PLANNER_GPU_LAYERS`: layers on GPU/Metal (default `-1` = all)
 - `ROBOT_PLANNER_THREADS`: CPU threads (default `6`)
+- `ROBOT_PLANNER_URL`: HTTPS URL to download the model from (Docker only, see below)
+- `ROBOT_PLANNER_SHA256`: optional checksum of the model file (Docker only)
+
+**Model download in Docker**: the GGUF file is not in git or in the image. At container start,
+`scripts/docker-entrypoint.sh` runs `scripts/fetch_model.py`, which downloads the model from
+`ROBOT_PLANNER_URL` (e.g. an S3 object) if it is missing or its checksum differs, then starts the app.
+
+```bash
+cp .env.example .env        # set ROBOT_PLANNER_URL (and ROBOT_PLANNER_SHA256)
+docker compose up --build mles-app
+```
+
+- `docker-compose.yaml`: the file lands in `./models` (bind-mounted), so it is downloaded once.
+- `docker-compose.prod.yaml`: the file lands in the `model-cache` volume (`/data/models`).
+- If the download fails, the app still starts and `/api/v1/robot_plan` returns 503.
 
 #### Air-writing (IMU trajectories → word image → OCR)
 
@@ -514,6 +529,10 @@ mles_app/
 ├── docker-compose.yaml             # Docker Compose configuration for development environment
 ├── docker-compose.prod.yaml        # Docker Compose configuration for production environment
 ├── test_request.sh                 # API testing script
+├── .env.example                    # Docker settings (copy to .env)
+├── scripts/
+│   ├── docker-entrypoint.sh        # Container start: fetch model, then run the app
+│   └── fetch_model.py              # Downloads the robot-planner GGUF (e.g. from S3)
 ├── README.md                       # This documentation
 ├── models/                         # Model implementations
 │   ├── __init__.py

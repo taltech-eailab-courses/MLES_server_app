@@ -5,11 +5,20 @@ x-common: &common
     - ./models:/app/models
     - ./services:/app/services
     - ./.tmp:/app/.tmp
+    - ./scripts:/app/scripts:ro
+  # Run the model download before the app (works without rebuilding the image).
+  # Setting `entrypoint` clears the image's CMD, so each service sets `command` below.
+  entrypoint: ["sh", "/app/scripts/docker-entrypoint.sh"]
   networks: [internal]
   ports:
     - "5001:5000"
   stdin_open: true
   tty: true 
+  # Robot-planner model: downloaded on first start into ./models (mounted above), then reused.
+  # Values come from the .env file next to this compose file (see .env.example).
+  environment: &model_env
+    ROBOT_PLANNER_URL: ${ROBOT_PLANNER_URL:-}
+    ROBOT_PLANNER_SHA256: ${ROBOT_PLANNER_SHA256:-}
 
 
 services:
@@ -19,6 +28,7 @@ services:
       context: .
       dockerfile: .docker/Dockerfile
     image: mles-app
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
 
   mles-app-jetson:
     <<: *common
@@ -26,10 +36,12 @@ services:
       context: .
       dockerfile: .docker/Dockerfile.jetson
     image: mles-app-jetson
+    command: ["python3", "app.py"]
     runtime: nvidia
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      <<: *model_env
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
 
   ngrok:
     image: ngrok/ngrok:latest

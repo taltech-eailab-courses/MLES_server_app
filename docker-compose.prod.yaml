@@ -1,8 +1,18 @@
 services:
   mles-app:
     image: 0taki0/mles_app:latest
+    entrypoint: ["sh", "/app/scripts/docker-entrypoint.sh"]
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
     ports:
       - "5001:5000"
+    # Robot-planner model: downloaded on first start into the model-cache volume, then reused.
+    environment: &model_env
+      ROBOT_PLANNER_URL: ${ROBOT_PLANNER_URL:-}
+      ROBOT_PLANNER_SHA256: ${ROBOT_PLANNER_SHA256:-}
+      ROBOT_PLANNER_GGUF: /data/models/robot-q4_k_m.gguf
+    volumes:
+      - model-cache:/data/models
+      - ./scripts:/app/scripts:ro
     # deploy:
     #   resources:
     #     reservations:
@@ -16,10 +26,16 @@ services:
         
   mles-app-jetson:
     image: 0taki0/mles_app:jetson
+    entrypoint: ["sh", "/app/scripts/docker-entrypoint.sh"]
+    command: ["python3", "app.py"]
     runtime: nvidia
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      <<: *model_env
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - model-cache:/data/models
+      - ./scripts:/app/scripts:ro
     ports:
       - "5000:5000"
     networks:
@@ -47,3 +63,6 @@ services:
 networks:
   internal:
     driver: bridge
+
+volumes:
+  model-cache:

@@ -1,0 +1,8 @@
+# Keep large and private files out of the build context and images
+**/*.gguf
+**/*.gguf.part
+.env
+.venv
+venv/
+**/__pycache__
+.tmp/buffers
